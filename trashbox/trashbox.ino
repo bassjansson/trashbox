@@ -10,6 +10,7 @@
 
 #define BL_NAME      "Trashbox"
 
+TwoWire           i2c = TwoWire(0);
 RTC_DS3231        rtc;
 BluetoothA2DPSink a2dpSink;
 
@@ -21,7 +22,9 @@ void setup()
     // delay(3000); // wait for console opening
 
     // Initialise RTC
-    if (!rtc.begin())
+    i2c.begin(I2C_SDA_PIN, I2C_SCL_PIN, 100000ul);
+
+    if (!rtc.begin(&i2c))
     {
         Serial.println("Couldn't find RTC");
         while (true)
