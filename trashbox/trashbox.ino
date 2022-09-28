@@ -17,6 +17,7 @@
 #define BRIGHTNESS   255
 
 #define BLOCK_SIZE   1024 // 4096, 2 channel 16-bit, somehow constant
+#define AUTO_CONNECT false
 
 #define BL_NAME      "Trashbox"
 
@@ -29,6 +30,9 @@ char daysOfTheWeek[7][4] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
 CRGB leds[NUM_OF_LEDS];
 
 float audioRMS = 0.0001f;
+
+int16_t * soundData     = NULL;
+size_t    soundDataSize = 0;
 
 void readDataStream(const uint8_t * data, uint32_t length)
 {
@@ -46,6 +50,55 @@ void readDataStream(const uint8_t * data, uint32_t length)
     audioRMS = sqrtf(rms / sampleCount) + 0.0001f;
 
     // Serial.println(length); // To know the block size
+}
+
+void generateSound()
+{
+    uint16_t sampleRate  = a2dpSink.sample_rate();
+    float    mainFreq    = 261.63f; // Hertz
+    float    noteTime    = 0.2f;    // Seconds
+    size_t   noteTimeInt = (size_t)(noteTime * sampleRate / BLOCK_SIZE + 0.5f) * BLOCK_SIZE;
+    float    noteTimeAct = (float)noteTimeInt / sampleRate;
+
+    soundDataSize = noteTimeInt * 3 + BLOCK_SIZE * 4; // 3 notes and 4 empty blocks
+    soundData     = (int16_t *)ps_malloc(sizeof(int16_t) * soundDataSize * 2);
+
+    for (int i = 0; i < soundDataSize; ++i)
+    {
+        float t    = (float)i / sampleRate;
+        float freq = t < noteTimeAct
+                       ? mainFreq
+                       : (t < noteTimeAct * 2.0f ? mainFreq * 1.25f : (t < noteTimeAct * 3.0f ? mainFreq * 1.5f : 0.0f));
+        float env  = sinf(fmodf(t / noteTimeAct, 1.0f) * M_PI);
+        float s    = sinf(freq * t * 2.0f * M_PI) * env * 0.5f;
+
+        soundData[i * 2 + 0] = s * 32767; // left
+        soundData[i * 2 + 1] = s * 32767; // right
+    }
+}
+
+void playSound()
+{
+    if (soundData == NULL || soundDataSize == 0)
+        return;
+
+    Serial.println("Start sound");
+
+    int      blocks     = soundDataSize / BLOCK_SIZE;
+    uint16_t sampleRate = a2dpSink.sample_rate();
+    uint64_t start      = millis();
+
+    for (int b = 0; b < blocks; ++b)
+    {
+        a2dpSink.write_audio((uint8_t *)soundData + b * BLOCK_SIZE * 2 * 2, BLOCK_SIZE * 2 * 2);
+
+        uint64_t end = start + b * 1000 * BLOCK_SIZE / sampleRate - 1;
+
+        if ((end - millis()) < 1000ul)
+            delay(end - millis());
+    }
+
+    Serial.println("End sound");
 }
 
 void setup()
@@ -85,12 +138,11 @@ void setup()
     }
 
 
-    // Setup bluetooth audio
+    // Setup audio sink
     i2s_pin_config_t i2sPinConfig = {.bck_io_num   = I2S_BCK_PIN,
                                      .ws_io_num    = I2S_LRCK_PIN,
                                      .data_out_num = I2S_DATA_PIN,
                                      .data_in_num  = I2S_PIN_NO_CHANGE};
-    a2dpSink.set_pin_config(i2sPinConfig);
 
     static i2s_config_t i2sConfig = {
         .mode                 = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
@@ -104,64 +156,20 @@ void setup()
         .use_apll             = true,
         .tx_desc_auto_clear   = true // avoiding noise in case of data unavailability
     };
+
+    a2dpSink.set_pin_config(i2sPinConfig);
     a2dpSink.set_i2s_config(i2sConfig);
     a2dpSink.set_stream_reader(readDataStream);
+    a2dpSink.init_i2s_only();
+
+
+    // Generate sound
+    generateSound();
 
 
     // Start bluetooth audio
-    bool autoConnect = true;
-    a2dpSink.start(BL_NAME, autoConnect); // To turn bluetooth on
+    // a2dpSink.start(BL_NAME, AUTO_CONNECT); // To turn bluetooth on
     // a2dpSink.end(); // To turn bluetooth off
-
-
-    // Test sound bleeps
-    Serial.println("Sound setup");
-
-    const uint16_t sampleRate = a2dpSink.sample_rate();
-
-    float  mainFreq    = 261.63f; // Hertz
-    float  noteTime    = 0.2f;    // Seconds
-    size_t noteTimeInt = (size_t)(noteTime * sampleRate / BLOCK_SIZE + 0.5f) * BLOCK_SIZE;
-    float  noteTimeAct = (float)noteTimeInt / sampleRate;
-    size_t dataSize    = noteTimeInt * 3 + BLOCK_SIZE * 4; // 3 notes and 4 empty blocks
-
-    static int16_t * data = (int16_t *)ps_malloc(sizeof(int16_t) * dataSize * 2);
-
-    Serial.println("Sound allocated");
-
-    for (int i = 0; i < dataSize; ++i)
-    {
-        float t    = (float)i / sampleRate;
-        float freq = t < noteTimeAct
-                       ? mainFreq
-                       : (t < noteTimeAct * 2.0f ? mainFreq * 1.25f : (t < noteTimeAct * 3.0f ? mainFreq * 1.5f : 0.0f));
-        float env  = sinf(fmodf(t / noteTimeAct, 1.0f) * M_PI);
-        float s    = sinf(freq * t * 2.0f * M_PI) * env * 0.5f;
-
-        data[i * 2 + 0] = s * 32767; // left
-        data[i * 2 + 1] = s * 32767; // right
-    }
-
-    Serial.println("Sound generated");
-
-    int blocks = dataSize / BLOCK_SIZE;
-
-    uint64_t start = millis();
-
-    for (int b = 0; b < blocks; ++b)
-    {
-        a2dpSink.write_audio((uint8_t *)data + b * BLOCK_SIZE * 2 * 2, BLOCK_SIZE * 2 * 2);
-
-        uint64_t end = start + b * 1000 * BLOCK_SIZE / sampleRate - 1;
-
-        if ((end - millis()) < 1000ul)
-            delay(end - millis());
-
-        if (b == 0)
-            Serial.println("Start sound");
-    }
-
-    Serial.println("End sound");
 }
 
 void loop()
@@ -226,6 +234,8 @@ void loop()
 
     FastLED.show();
 
+    if (irChange && move)
+        playSound();
 
     // Delay a little bit
     delay(25);
