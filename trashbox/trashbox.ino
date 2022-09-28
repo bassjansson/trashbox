@@ -1,5 +1,6 @@
-#include "RTClib.h"
-#include "BluetoothA2DPSink.h"
+#include <RTClib.h>
+#include <BluetoothA2DPSink.h>
+#include <FastLED.h>
 
 #define I2C_SDA_PIN  21 // default
 #define I2C_SCL_PIN  22 // default
@@ -9,6 +10,10 @@
 #define I2S_LRCK_PIN 18 // WS
 
 #define IR_SENS_PIN  25
+#define LED_DATA_PIN 27
+
+#define NUM_OF_LEDS  30
+#define BRIGHTNESS   64
 
 #define BL_NAME      "Trashbox"
 
@@ -17,6 +22,8 @@ RTC_DS3231        rtc;
 BluetoothA2DPSink a2dpSink;
 
 char daysOfTheWeek[7][4] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
+
+CRGB leds[NUM_OF_LEDS];
 
 void setup()
 {
@@ -28,6 +35,14 @@ void setup()
     // Setup IR sensor
     pinMode(IR_SENS_PIN, INPUT_PULLUP);
     digitalWrite(IR_SENS_PIN, HIGH);
+
+
+    // Setup LEDs
+    // FastLED.addLeds<WS2811, LED_DATA_PIN, RGB>(leds, NUM_OF_LEDS);
+    // FastLED.addLeds<WS2812, LED_DATA_PIN, GRB>(leds, NUM_OF_LEDS);  // GRB ordering is typical
+    // FastLED.addLeds<WS2813, LED_DATA_PIN, RGB>(leds, NUM_OF_LEDS);
+    FastLED.addLeds<WS2812B, LED_DATA_PIN, GRB>(leds, NUM_OF_LEDS); // GRB ordering is typical
+    FastLED.setBrightness(BRIGHTNESS);
 
 
     // Initialise RTC
@@ -76,6 +91,7 @@ void setup()
 void loop()
 {
     /*
+    // Print RTC time
     DateTime now = rtc.now();
 
     Serial.print(now.year(), DEC);
@@ -94,11 +110,32 @@ void loop()
     Serial.println();
     */
 
+
+    // Print IR reading
     static float ir = 0.0f;
-    const float  f  = 0.95f;
+    const float  f  = 0.9f;
 
     ir = ir * f + (1.0f - f) * digitalRead(IR_SENS_PIN);
     Serial.println(ir * 5.0f);
 
+    static int lastIR   = 0;
+    int        irN      = digitalRead(IR_SENS_PIN);
+    int        irChange = irN != lastIR;
+    lastIR              = irN;
+
+
+    // Update LEDs
+    static int move = 0;
+    move += irChange;
+    for (int i = 0; i < NUM_OF_LEDS; ++i)
+    {
+        int j   = (i + move) % NUM_OF_LEDS; // (i + int(millis() / 1000)) % NUM_OF_LEDS;
+        leds[i] = j < 10 ? CRGB::Red : (j < 20 ? CRGB::Green : CRGB::Blue);
+    }
+
+    FastLED.show();
+
+
+    // Delay a little bit
     delay(25);
 }
