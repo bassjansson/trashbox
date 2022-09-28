@@ -84,18 +84,19 @@ void playSound()
 
     Serial.println("Start sound");
 
-    int      blocks     = soundDataSize / BLOCK_SIZE;
-    uint16_t sampleRate = a2dpSink.sample_rate();
-    uint64_t start      = millis();
+    int           blocks     = soundDataSize / BLOCK_SIZE;
+    uint16_t      sampleRate = a2dpSink.sample_rate();
+    unsigned long start      = millis();
+    unsigned long wait;
 
     for (int b = 0; b < blocks; ++b)
     {
         a2dpSink.write_audio((uint8_t *)soundData + b * BLOCK_SIZE * 2 * 2, BLOCK_SIZE * 2 * 2);
 
-        uint64_t end = start + b * 1000 * BLOCK_SIZE / sampleRate - 1;
+        wait = start + b * 1000ul * BLOCK_SIZE / sampleRate - 1ul - millis();
 
-        if ((end - millis()) < 1000ul)
-            delay(end - millis());
+        if (wait < 1000ul)
+            delay(wait);
     }
 
     Serial.println("End sound");
