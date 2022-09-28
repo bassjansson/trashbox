@@ -8,6 +8,8 @@
 #define I2S_DATA_PIN 23
 #define I2S_LRCK_PIN 18 // WS
 
+#define IR_SENS_PIN  25
+
 #define BL_NAME      "Trashbox"
 
 TwoWire           i2c = TwoWire(0);
@@ -18,8 +20,15 @@ char daysOfTheWeek[7][4] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
 
 void setup()
 {
+    // Setup serial communication
     Serial.begin(115200);
     // delay(3000); // wait for console opening
+
+
+    // Setup IR sensor
+    pinMode(IR_SENS_PIN, INPUT_PULLUP);
+    digitalWrite(IR_SENS_PIN, HIGH);
+
 
     // Initialise RTC
     i2c.begin(I2C_SDA_PIN, I2C_SCL_PIN, 100000ul);
@@ -36,6 +45,7 @@ void setup()
         Serial.println("RTC lost power, lets set the time!");
         // rtc.adjust(DateTime(2022, 9, 10, 20, 48, 0)); // Change this to current time + 40 sec upload time
     }
+
 
     // Setup bluetooth audio
     i2s_pin_config_t i2sPinConfig = {.bck_io_num   = I2S_BCK_PIN,
@@ -65,6 +75,7 @@ void setup()
 
 void loop()
 {
+    /*
     DateTime now = rtc.now();
 
     Serial.print(now.year(), DEC);
@@ -81,6 +92,13 @@ void loop()
     Serial.print(':');
     Serial.print(now.second(), DEC);
     Serial.println();
+    */
 
-    delay(3000);
+    static float ir = 0.0f;
+    const float  f  = 0.95f;
+
+    ir = ir * f + (1.0f - f) * digitalRead(IR_SENS_PIN);
+    Serial.println(ir * 5.0f);
+
+    delay(25);
 }
