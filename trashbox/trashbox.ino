@@ -12,6 +12,7 @@
 
 #define IR_SENS_PIN  25
 #define LED_DATA_PIN 27
+#define BUTTON_PIN   35
 
 #define NUM_OF_LEDS  30
 #define BRIGHTNESS   255
@@ -109,9 +110,12 @@ void setup()
     // delay(3000); // wait for console opening
 
 
-    // Setup IR sensor
+    // Setup IR sensor and button
     pinMode(IR_SENS_PIN, INPUT_PULLUP);
     digitalWrite(IR_SENS_PIN, HIGH);
+
+    pinMode(BUTTON_PIN, INPUT_PULLUP);
+    digitalWrite(BUTTON_PIN, HIGH);
 
 
     // Setup LEDs
