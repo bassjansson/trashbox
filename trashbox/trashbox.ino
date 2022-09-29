@@ -29,8 +29,9 @@
 #define BLOCK_SIZE   1024 // 4096, 2 channel 16-bit, somehow constant
 #define AUTO_CONNECT false
 
-#define BUTT_TIMEOUT (60 * 1)  // seconds
-#define CONN_TIMEOUT (60 * 10) // seconds
+#define BTTN_TIMEOUT (40)      // seconds
+#define CONN_TIMEOUT (80)      // seconds
+#define PLAY_TIMEOUT (60 * 10) // seconds
 
 #define INIT_VOLUME  80 // percent
 
@@ -71,6 +72,7 @@ MainState mainState = WAIT_FOR_TRASH;
 
 uint32_t buttonTimeout  = 0;
 uint32_t connectTimeout = 0;
+uint32_t playTimeout    = 0;
 
 struct Counters
 {
@@ -82,6 +84,7 @@ struct Counters
 
     uint32_t buttonTimeoutCounter  = 0;
     uint32_t connectTimeoutCounter = 0;
+    uint32_t playTimeoutCounter    = 0;
 
     uint32_t btConnectedCounter    = 0;
     uint32_t btDisconnectedCounter = 0;
@@ -137,6 +140,8 @@ void readAndPrintCounters()
     Serial.println(counters.buttonTimeoutCounter);
     Serial.print("        Connect timeouts:  ");
     Serial.println(counters.connectTimeoutCounter);
+    Serial.print("           Play timeouts:  ");
+    Serial.println(counters.playTimeoutCounter);
     Serial.print("      Bluetooth connects:  ");
     Serial.println(counters.btConnectedCounter);
     Serial.print("   Bluetooth disconnects:  ");
@@ -376,7 +381,7 @@ void waitForTrash(uint32_t time)
         writeCounters();
 
         // Set timer
-        buttonTimeout = time + BUTT_TIMEOUT;
+        buttonTimeout = time + BTTN_TIMEOUT;
 
         // Play sound
         playSound(0);
@@ -434,6 +439,7 @@ void waitForButton(uint32_t time)
 
         // Set timer
         connectTimeout = time + CONN_TIMEOUT;
+        playTimeout    = time + PLAY_TIMEOUT;
 
         // Start bluetooth
         a2dpSink.start(BL_NAME, AUTO_CONNECT);
@@ -449,13 +455,16 @@ void waitForButton(uint32_t time)
 void waitForConnect(uint32_t time)
 {
     // Check timer
-    if (time > connectTimeout)
+    if (time > playTimeout || time > connectTimeout)
     {
         // Log state
-        Serial.println("Connect timeout reached.");
+        Serial.println(time > playTimeout ? "Play timeout reached." : "Connect timeout reached.");
 
         // Increment counter
-        counters.connectTimeoutCounter++;
+        if (time > playTimeout)
+            counters.playTimeoutCounter++;
+        else
+            counters.connectTimeoutCounter++;
         writeCounters();
 
         // Turn LEDs off
@@ -503,13 +512,13 @@ void waitForConnect(uint32_t time)
 void waitForDisconnect(uint32_t time)
 {
     // Check timer
-    if (time > connectTimeout)
+    if (time > playTimeout)
     {
         // Log state
-        Serial.println("Connect timeout reached.");
+        Serial.println("Play timeout reached.");
 
         // Increment counter
-        counters.connectTimeoutCounter++;
+        counters.playTimeoutCounter++;
         writeCounters();
 
         // Turn LEDs off
@@ -540,6 +549,9 @@ void waitForDisconnect(uint32_t time)
         // Increment counter
         counters.btDisconnectedCounter++;
         writeCounters();
+
+        // Set timer
+        connectTimeout = time + CONN_TIMEOUT;
 
         // Play sound
         playSound(3);
