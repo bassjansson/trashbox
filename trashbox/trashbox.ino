@@ -1,5 +1,6 @@
 #include <RTClib.h>
 #include <FastLED.h>
+#include <SPIFFS.h>
 
 #include "BluetoothA2DPSinkTB.hpp"
 
@@ -69,6 +70,103 @@ MainState mainState = WAIT_FOR_TRASH;
 
 uint32_t buttonTimeout  = 0;
 uint32_t connectTimeout = 0;
+
+struct Counters
+{
+    uint32_t countStartUnixTime = 0;
+    uint32_t programBootCounter = 0;
+
+    uint32_t trashDetectedCounter = 0;
+    uint32_t buttonPressedCounter = 0;
+
+    uint32_t buttonTimeoutCounter  = 0;
+    uint32_t connectTimeoutCounter = 0;
+
+    uint32_t btConnectedCounter    = 0;
+    uint32_t btDisconnectedCounter = 0;
+};
+
+Counters counters;
+
+bool isSpiffsMounted = false;
+
+void readAndPrintCounters()
+{
+    if (!isSpiffsMounted)
+        return;
+
+    File file = SPIFFS.open("/counters.bin", FILE_READ);
+
+    if (!file || file.isDirectory())
+    {
+        Serial.println("Failed to open counters file..");
+        return;
+    }
+
+    if (!file.read((uint8_t *)(&counters), sizeof(counters)) == sizeof(counters))
+    {
+        Serial.println("Failed to read counters file..");
+        file.close();
+        return;
+    }
+
+    DateTime dt(counters.countStartUnixTime);
+
+    Serial.println();
+    Serial.print("<<< Counters since ");
+    Serial.print(dt.day(), DEC);
+    Serial.print('-');
+    Serial.print(dt.month(), DEC);
+    Serial.print('-');
+    Serial.print(dt.year(), DEC);
+    Serial.print(' ');
+    Serial.print(dt.hour(), DEC);
+    Serial.print(':');
+    Serial.print(dt.minute(), DEC);
+    Serial.print(':');
+    Serial.print(dt.second(), DEC);
+    Serial.println(" >>>");
+    Serial.print("           Program boots:  ");
+    Serial.println(counters.programBootCounter);
+    Serial.print("        Trash detections:  ");
+    Serial.println(counters.trashDetectedCounter);
+    Serial.print("          Button presses:  ");
+    Serial.println(counters.buttonPressedCounter);
+    Serial.print("         Button timeouts:  ");
+    Serial.println(counters.buttonTimeoutCounter);
+    Serial.print("        Connect timeouts:  ");
+    Serial.println(counters.connectTimeoutCounter);
+    Serial.print("      Bluetooth connects:  ");
+    Serial.println(counters.btConnectedCounter);
+    Serial.print("   Bluetooth disconnects:  ");
+    Serial.println(counters.btDisconnectedCounter);
+    Serial.println();
+
+    file.close();
+}
+
+void writeCounters()
+{
+    if (!isSpiffsMounted)
+        return;
+
+    File file = SPIFFS.open("/counters.bin", FILE_WRITE);
+
+    if (!file || file.isDirectory())
+    {
+        Serial.println("Failed to open counters file..");
+        return;
+    }
+
+    if (!file.write((uint8_t *)(&counters), sizeof(counters)) == sizeof(counters))
+    {
+        Serial.println("Failed to write counters file..");
+        file.close();
+        return;
+    }
+
+    file.close();
+}
 
 void readDataStream(const uint8_t * data, uint32_t length)
 {
@@ -258,6 +356,10 @@ void waitForTrash(uint32_t time)
         // Log state
         Serial.println("User threw in trash.");
 
+        // Increment counter
+        counters.trashDetectedCounter++;
+        writeCounters();
+
         // Set timer
         buttonTimeout = time + BUTT_TIMEOUT;
 
@@ -276,6 +378,10 @@ void waitForButton(uint32_t time)
     {
         // Log state
         Serial.println("Button timeout reached.");
+
+        // Increment counter
+        counters.buttonTimeoutCounter++;
+        writeCounters();
 
         // Turn LEDs off
         for (int i = 0; i < NUM_OF_LEDS; ++i)
@@ -305,6 +411,10 @@ void waitForButton(uint32_t time)
         // Log state
         Serial.println("User pressed button.");
 
+        // Increment counter
+        counters.buttonPressedCounter++;
+        writeCounters();
+
         // Set timer
         connectTimeout = time + CONN_TIMEOUT;
 
@@ -326,6 +436,10 @@ void waitForConnect(uint32_t time)
     {
         // Log state
         Serial.println("Connect timeout reached.");
+
+        // Increment counter
+        counters.connectTimeoutCounter++;
+        writeCounters();
 
         // Turn LEDs off
         for (int i = 0; i < NUM_OF_LEDS; ++i)
@@ -352,6 +466,10 @@ void waitForConnect(uint32_t time)
         // Log state
         Serial.println("User connected.");
 
+        // Increment counter
+        counters.btConnectedCounter++;
+        writeCounters();
+
         // Set initial volume
         a2dpSink.set_volume(INIT_VOLUME);
 
@@ -370,6 +488,10 @@ void waitForDisconnect(uint32_t time)
     {
         // Log state
         Serial.println("Connect timeout reached.");
+
+        // Increment counter
+        counters.connectTimeoutCounter++;
+        writeCounters();
 
         // Turn LEDs off
         for (int i = 0; i < NUM_OF_LEDS; ++i)
@@ -405,6 +527,10 @@ void waitForDisconnect(uint32_t time)
         // Log state
         Serial.println("User disconnected.");
 
+        // Increment counter
+        counters.btDisconnectedCounter++;
+        writeCounters();
+
         // Play sound
         playSound(3);
 
@@ -418,6 +544,13 @@ void setup()
     // Setup serial communication
     Serial.begin(115200);
     // delay(3000); // wait for console opening
+
+
+    // Setup SPIFFS
+    if (SPIFFS.begin(true))
+        isSpiffsMounted = true;
+    else
+        Serial.println("Failed to mount SPIFFS..");
 
 
     // Setup sensors
@@ -493,6 +626,10 @@ void setup()
     a2dpSink.init_i2s_only();
 
 
+    // Read and print counters
+    counters.countStartUnixTime = rtc.now().unixtime();
+    readAndPrintCounters();
+
     // Generate sounds
     generateSounds();
 
@@ -503,6 +640,10 @@ void setup()
 
     // Log state
     Serial.println("Trashbox ready for trash.");
+
+    // Increment counter
+    counters.programBootCounter++;
+    writeCounters();
 
     // Play sound
     playSound(3);
