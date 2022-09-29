@@ -3,6 +3,11 @@
 
 #include "BluetoothA2DPSinkTB.hpp"
 
+// This code is used on a LilyGO TTGO T8 ESP32 board.
+// The pins which are available on this board are:
+// 18, 19, 21, 22, 23, 25, 26, 27, 32, 33
+// Do not use any of the other pins!
+
 #define I2C_SDA_PIN  21 // default
 #define I2C_SCL_PIN  22 // default
 
@@ -10,12 +15,15 @@
 #define I2S_DATA_PIN 23
 #define I2S_LRCK_PIN 18 // WS
 
-#define IR_SENS_PIN  25
 #define LED_DATA_PIN 27
-#define BUTTON_PIN   35
+#define BUTTON_PIN   26
+
+#define IR_SENS1_PIN 25
+// #define IR_SENS2_PIN 33 // uncomment to use, works immediately
+// #define IR_SENS3_PIN 32 // uncomment to use, works immediately
 
 #define NUM_OF_LEDS  30
-#define BRIGHTNESS   64
+#define BRIGHTNESS   64 // 0 to 255
 
 #define BLOCK_SIZE   1024 // 4096, 2 channel 16-bit, somehow constant
 #define AUTO_CONNECT false
@@ -41,8 +49,6 @@
 TwoWire             i2c = TwoWire(0);
 RTC_DS3231          rtc;
 BluetoothA2DPSinkTB a2dpSink;
-
-char daysOfTheWeek[7][4] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
 
 CRGB leds[NUM_OF_LEDS];
 
@@ -234,8 +240,20 @@ void waitForTrash(uint32_t time)
     FastLED.show();
 
 
-    // Check trash sensors
-    if (digitalRead(IR_SENS_PIN) == LOW) // TODO: more sensors will be added here
+    // Read trash sensors
+    bool isTrashDetected = digitalRead(IR_SENS1_PIN) == LOW;
+
+#ifdef IR_SENS2_PIN
+    isTrashDetected = isTrashDetected || digitalRead(IR_SENS2_PIN) == LOW;
+#endif
+
+#ifdef IR_SENS3_PIN
+    isTrashDetected = isTrashDetected || digitalRead(IR_SENS3_PIN) == LOW;
+#endif
+
+
+    // Check if trash is detected
+    if (isTrashDetected)
     {
         // Log state
         Serial.println("User threw in trash.");
@@ -396,10 +414,22 @@ void setup()
     // delay(3000); // wait for console opening
 
 
-    // Setup IR sensor and button
-    pinMode(IR_SENS_PIN, INPUT_PULLUP);
-    digitalWrite(IR_SENS_PIN, HIGH);
+    // Setup sensors
+    pinMode(IR_SENS1_PIN, INPUT_PULLUP);
+    digitalWrite(IR_SENS1_PIN, HIGH);
 
+#ifdef IR_SENS2_PIN
+    pinMode(IR_SENS2_PIN, INPUT_PULLUP);
+    digitalWrite(IR_SENS2_PIN, HIGH);
+#endif
+
+#ifdef IR_SENS3_PIN
+    pinMode(IR_SENS3_PIN, INPUT_PULLUP);
+    digitalWrite(IR_SENS3_PIN, HIGH);
+#endif
+
+
+    // Setup button
     pinMode(BUTTON_PIN, INPUT_PULLUP);
     digitalWrite(BUTTON_PIN, HIGH);
 
