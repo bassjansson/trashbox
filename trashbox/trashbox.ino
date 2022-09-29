@@ -24,7 +24,7 @@
 // #define IR_SENS3_PIN 32 // uncomment to use, works immediately
 
 #define NUM_OF_LEDS  30
-#define BRIGHTNESS   64 // 0 to 255
+#define BRIGHTNESS   128 // 0 to 255
 
 #define BLOCK_SIZE   1024 // 4096, 2 channel 16-bit, somehow constant
 #define AUTO_CONNECT false
@@ -38,7 +38,8 @@
 #define BLEEP_FREQ   220.0f // Hertz
 #define BLEEP_DUR    0.15f  // seconds
 
-#define AUD_FB_RANGE 30.0f // dB
+#define AUD_FB_LPF   0.6f  // 0 to 1
+#define AUD_FB_RANGE 40.0f // dB
 
 #define DAY_START_HR 8  // hours
 #define DAY_END_HR   22 // hours
@@ -181,7 +182,15 @@ void readDataStream(const uint8_t * data, uint32_t length)
         rms += s * s;
     }
 
-    audioRMS = sqrtf(rms / sampleCount) + 0.0001f;
+    rms = log10f(sqrtf(rms / sampleCount) + 0.0001f) * 20.0f;
+    rms = (rms + AUD_FB_RANGE) / AUD_FB_RANGE;
+
+    if (rms < 0.0f)
+        rms = 0.0f;
+    if (rms > 1.0f)
+        rms = 1.0f;
+
+    audioRMS = audioRMS * AUD_FB_LPF + (1.0f - AUD_FB_LPF) * rms;
 
     // Serial.println(length); // To know the block size
 }
@@ -333,8 +342,14 @@ void playSound(int sound = 0)
 void waitForTrash(uint32_t time)
 {
     // Update LEDs
+    if (leds[0].r > 2)
+        leds[0].r -= 3;
+    else
+        leds[0].r = 0;
+
     for (int i = 0; i < NUM_OF_LEDS; ++i)
-        leds[i] = CRGB::Black;
+        leds[i].setRGB(leds[0].r, leds[0].r / 8.0f, 0);
+
     FastLED.show();
 
 
@@ -394,8 +409,10 @@ void waitForButton(uint32_t time)
 
 
     // Update LEDs
+    int   t = BLEEP_DUR * 6 * 2 * 1000;
+    float c = sinf(millis() % t / (float)t * 2.0f * M_PI) * 0.5f + 0.5f;
     for (int i = 0; i < NUM_OF_LEDS; ++i)
-        leds[i] = CRGB::Green;
+        leds[i].setRGB(50, 50 + c * 205, 25);
     FastLED.show();
 
 
@@ -455,8 +472,10 @@ void waitForConnect(uint32_t time)
 
 
     // Update LEDs
+    int   t = BLEEP_DUR * 6 * 1000;
+    float c = sinf(millis() % t / (float)t * 2.0f * M_PI) * 0.5f + 0.5f;
     for (int i = 0; i < NUM_OF_LEDS; ++i)
-        leds[i] = CRGB::Blue;
+        leds[i].setRGB(50, 25, 25 + c * 230);
     FastLED.show();
 
 
@@ -507,17 +526,8 @@ void waitForDisconnect(uint32_t time)
 
 
     // Update LEDs
-    float rmsDb  = log10f(audioRMS) * 20.0f;
-    float rmsFlt = (rmsDb + AUD_FB_RANGE) / AUD_FB_RANGE;
-
-    if (rmsFlt < 0.0f)
-        rmsFlt = 0.0f;
-    if (rmsFlt > 1.0f)
-        rmsFlt = 1.0f;
-
     for (int i = 0; i < NUM_OF_LEDS; ++i)
-        leds[i].setHSV(int(rmsFlt * 2.0f * 255) % 256, 255, rmsFlt * 255);
-
+        leds[i].setHSV(int(audioRMS * 1.75f * 255 + millis() / 250.0f) % 256, 255, audioRMS * 200 + 55);
     FastLED.show();
 
 
@@ -635,7 +645,7 @@ void setup()
 
     // Update LEDs
     for (int i = 0; i < NUM_OF_LEDS; ++i)
-        leds[i] = CRGB::Red;
+        leds[i].setRGB(255, 32, 0);
     FastLED.show();
 
     // Log state
