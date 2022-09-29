@@ -293,8 +293,14 @@ void waitForButton(uint32_t time)
     FastLED.show();
 
 
-    // Check start bluetooth button
-    if (digitalRead(BUTTON_PIN) == LOW) // TODO: button debouncing needs to be added here
+    // Read start button
+    static int debounceCnt = 0;
+    debounceCnt            = digitalRead(BUTTON_PIN) == LOW ? debounceCnt + 1 : 0;
+    bool isButtonPressed   = debounceCnt >= 3;
+
+
+    // Check if start button is pressed
+    if (isButtonPressed)
     {
         // Log state
         Serial.println("User pressed button.");
