@@ -20,6 +20,9 @@
 #define BLOCK_SIZE   1024 // 4096, 2 channel 16-bit, somehow constant
 #define AUTO_CONNECT false
 
+#define BUTT_TIMEOUT 30 // seconds
+#define CONN_TIMEOUT 60 // seconds
+
 #define BL_NAME      "Trashbox"
 
 TwoWire             i2c = TwoWire(0);
@@ -44,6 +47,9 @@ enum MainState
 };
 
 MainState mainState = WAIT_FOR_TRASH;
+
+uint32_t buttonTimeout  = 0;
+uint32_t connectTimeout = 0;
 
 void readDataStream(const uint8_t * data, uint32_t length)
 {
@@ -141,6 +147,9 @@ void waitForTrash(uint32_t time)
         // Log state
         Serial.println("User threw in trash.");
 
+        // Set timer
+        buttonTimeout = time + BUTT_TIMEOUT;
+
         // Play sound
         playSound();
 
@@ -151,6 +160,22 @@ void waitForTrash(uint32_t time)
 
 void waitForButton(uint32_t time)
 {
+    // Check timer
+    if (time > buttonTimeout)
+    {
+        // Log state
+        Serial.println("Button timeout reached.");
+
+        // Turn LEDs off
+        for (int i = 0; i < NUM_OF_LEDS; ++i)
+            leds[i] = CRGB::Black;
+        FastLED.show();
+
+        // Restart ESP
+        ESP.restart();
+    }
+
+
     // Update LEDs
     for (int i = 0; i < NUM_OF_LEDS; ++i)
         leds[i] = CRGB::Green;
@@ -162,6 +187,9 @@ void waitForButton(uint32_t time)
     {
         // Log state
         Serial.println("User pressed button.");
+
+        // Set timer
+        connectTimeout = time + CONN_TIMEOUT;
 
         // Start bluetooth
         a2dpSink.start(BL_NAME, AUTO_CONNECT);
@@ -176,6 +204,25 @@ void waitForButton(uint32_t time)
 
 void waitForConnect(uint32_t time)
 {
+    // Check timer
+    if (connectTimeout > time)
+    {
+        // Log state
+        Serial.println("Connect timeout reached.");
+
+        // Turn LEDs off
+        for (int i = 0; i < NUM_OF_LEDS; ++i)
+            leds[i] = CRGB::Black;
+        FastLED.show();
+
+        // End audio sink
+        a2dpSink.end(true);
+
+        // Restart ESP
+        ESP.restart();
+    }
+
+
     // Update LEDs
     for (int i = 0; i < NUM_OF_LEDS; ++i)
         leds[i] = CRGB::Blue;
@@ -198,6 +245,25 @@ void waitForConnect(uint32_t time)
 
 void waitForDisconnect(uint32_t time)
 {
+    // Check timer
+    if (connectTimeout > time)
+    {
+        // Log state
+        Serial.println("Connect timeout reached.");
+
+        // Turn LEDs off
+        for (int i = 0; i < NUM_OF_LEDS; ++i)
+            leds[i] = CRGB::Black;
+        FastLED.show();
+
+        // End audio sink
+        a2dpSink.end(true);
+
+        // Restart ESP
+        ESP.restart();
+    }
+
+
     // Update LEDs
     const float range  = 30.0f;
     float       rmsDb  = log10f(audioRMS) * 20.0f;
@@ -215,21 +281,16 @@ void waitForDisconnect(uint32_t time)
 
 
     // Check bluetooth connection
-    if (!a2dpSink.is_connected()) // TODO: this should be quit by a timer
+    if (!a2dpSink.is_connected())
     {
         // Log state
         Serial.println("User disconnected.");
 
-        // Turn LEDs off
-        for (int i = 0; i < NUM_OF_LEDS; ++i)
-            leds[i] = CRGB::Black;
-        FastLED.show();
+        // Play sound
+        playSound();
 
-        // End audio sink
-        a2dpSink.end(true);
-
-        // Restart ESP
-        ESP.restart();
+        // Switch state
+        mainState = WAIT_FOR_CONNECT;
     }
 }
 
