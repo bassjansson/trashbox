@@ -13,10 +13,18 @@ public:
     void init_i2s_only()
     {
         init_i2s();
+
+        ESP_LOGI(BT_AV_TAG, "i2s_start");
+        if (i2s_start(i2s_port) != ESP_OK)
+        {
+            ESP_LOGE(BT_AV_TAG, "i2s_start");
+        }
     };
 
-    void start(const char * name) override
+    void start(const char * name, bool auto_reconnect) override
     {
+        set_auto_reconnect(auto_reconnect, AUTOCONNECT_TRY_NUM);
+
         ESP_LOGD(BT_AV_TAG, "%s", __func__);
         log_free_heap();
 
@@ -93,7 +101,7 @@ public:
         log_free_heap();
     };
 
-    void end(bool release_memory) override
+    void end(bool release_memory = false) override
     {
         // reconnect should not work after end
         is_autoreconnect_allowed = false;
@@ -115,5 +123,46 @@ public:
         }
 
         log_free_heap();
+    };
+
+    void handle_audio_state(uint16_t event, void * p_param) override
+    {
+        ESP_LOGD(BT_AV_TAG, "%s evt %d", __func__, event);
+        esp_a2d_cb_param_t * a2d = (esp_a2d_cb_param_t *)(p_param);
+        ESP_LOGI(BT_AV_TAG, "A2DP audio state: %s", to_str(a2d->audio_stat.state));
+
+        // callback on state change
+        audio_state = a2d->audio_stat.state;
+        if (audio_state_callback != nullptr)
+        {
+            audio_state_callback(a2d->audio_stat.state, audio_state_obj);
+        }
+
+        if (is_i2s_output)
+        {
+            if (ESP_A2D_AUDIO_STATE_STARTED == a2d->audio_stat.state)
+            {
+                m_pkt_cnt = 0;
+                // Do not start i2s
+                // ESP_LOGI(BT_AV_TAG, "i2s_start");
+                // if (i2s_start(i2s_port) != ESP_OK)
+                // {
+                //     ESP_LOGE(BT_AV_TAG, "i2s_start");
+                // }
+            }
+            else if (ESP_A2D_AUDIO_STATE_REMOTE_SUSPEND == a2d->audio_stat.state
+                     || ESP_A2D_AUDIO_STATE_STOPPED == a2d->audio_stat.state)
+            {
+                // Do not stop i2s
+                // ESP_LOGW(BT_AV_TAG, "i2s_stop");
+                // i2s_stop(i2s_port);
+                // i2s_zero_dma_buffer(i2s_port);
+            }
+
+            if (audio_state_callback_post != nullptr)
+            {
+                audio_state_callback_post(a2d->audio_stat.state, audio_state_obj_post);
+            }
+        }
     };
 };
