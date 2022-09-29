@@ -205,7 +205,7 @@ void waitForButton(uint32_t time)
 void waitForConnect(uint32_t time)
 {
     // Check timer
-    if (connectTimeout > time)
+    if (time > connectTimeout)
     {
         // Log state
         Serial.println("Connect timeout reached.");
@@ -246,7 +246,7 @@ void waitForConnect(uint32_t time)
 void waitForDisconnect(uint32_t time)
 {
     // Check timer
-    if (connectTimeout > time)
+    if (time > connectTimeout)
     {
         // Log state
         Serial.println("Connect timeout reached.");
