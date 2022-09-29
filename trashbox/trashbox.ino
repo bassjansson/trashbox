@@ -20,8 +20,13 @@
 #define BLOCK_SIZE   1024 // 4096, 2 channel 16-bit, somehow constant
 #define AUTO_CONNECT false
 
-#define BUTT_TIMEOUT 30 // seconds
-#define CONN_TIMEOUT 60 // seconds
+#define BUTT_TIMEOUT (60 * 1)  // seconds
+#define CONN_TIMEOUT (60 * 10) // seconds
+
+#define NORM_VOLUME  80    // percent
+#define BLEEP_VOLUME 0.05f // 0 to 1
+
+#define NUM_OF_SOUND 4
 
 #define BL_NAME      "Trashbox"
 
@@ -35,8 +40,8 @@ CRGB leds[NUM_OF_LEDS];
 
 float audioRMS = 0.0001f;
 
-int16_t * soundData     = NULL;
-size_t    soundDataSize = 0;
+int16_t * soundData[NUM_OF_SOUND];
+size_t    soundDataSize[NUM_OF_SOUND];
 
 enum MainState
 {
@@ -69,46 +74,122 @@ void readDataStream(const uint8_t * data, uint32_t length)
     // Serial.println(length); // To know the block size
 }
 
-void generateSound()
+float tri(float phase)
 {
+    return fabsf(fmodf(phase + 0.75f, 1.0f) * 2.0f - 1.0f) * 2.0f - 1.0f;
+}
+
+float bell(float phase)
+{
+    float x = fmodf(phase, 1.0f) * 2.0f - 1.0f;
+    return 1.0f - x * x;
+}
+
+void generateSounds()
+{
+    // Common
     uint16_t sampleRate  = a2dpSink.sample_rate();
-    float    mainFreq    = 261.63f; // Hertz
-    float    noteTime    = 0.2f;    // Seconds
+    float    volume      = BLEEP_VOLUME;
+    float    mainFreq    = 220.0f; // Hertz
+    float    noteTime    = 0.15f;  // Seconds
     size_t   noteTimeInt = (size_t)(noteTime * sampleRate / BLOCK_SIZE + 0.5f) * BLOCK_SIZE;
     float    noteTimeAct = (float)noteTimeInt / sampleRate;
+    int      s;
+    float    t, freq, env, phas;
+    int16_t  samp;
 
-    soundDataSize = noteTimeInt * 3 + BLOCK_SIZE * 4; // 3 notes and 4 empty blocks
-    soundData     = (int16_t *)ps_malloc(sizeof(int16_t) * soundDataSize * 2);
 
-    for (int i = 0; i < soundDataSize; ++i)
+    // Sound 0 = trash thrown in
+    s = 0;
+
+    soundDataSize[s] = noteTimeInt * 6 + BLOCK_SIZE * 4; // 3 notes and 4 empty blocks
+    soundData[s]     = (int16_t *)ps_malloc(sizeof(int16_t) * soundDataSize[s] * 2);
+
+    for (int i = 0; i < soundDataSize[s]; ++i)
     {
-        float t    = (float)i / sampleRate;
-        float freq = t < noteTimeAct
-                       ? mainFreq
-                       : (t < noteTimeAct * 2.0f ? mainFreq * 1.25f : (t < noteTimeAct * 3.0f ? mainFreq * 1.5f : 0.0f));
-        float env  = sinf(fmodf(t / noteTimeAct, 1.0f) * M_PI);
-        float s    = sinf(freq * t * 2.0f * M_PI) * env * 0.5f;
+        t    = (float)i / sampleRate;
+        freq = t < noteTimeAct * 6.0f ? mainFreq : 0.0f;
+        env  = bell(t / (noteTimeAct * 6.0f));
+        phas = freq * t;
+        samp = (int16_t)((tri(0.5f * phas) * 1.5f + tri(1.25f * phas) + tri(1.5f * phas) * 0.75f + tri(2.0f * phas) * 0.5f)
+                         / 2.0f * env * volume * 32767);
 
-        soundData[i * 2 + 0] = s * 32767; // left
-        soundData[i * 2 + 1] = s * 32767; // right
+        soundData[s][i * 2 + 0] = samp; // left
+        soundData[s][i * 2 + 1] = samp; // right
+    }
+
+
+    // Sound 1 = wait for connect
+    s = 1;
+
+    soundDataSize[s] = noteTimeInt * 6 + BLOCK_SIZE * 4; // 3 notes and 4 empty blocks
+    soundData[s]     = (int16_t *)ps_malloc(sizeof(int16_t) * soundDataSize[s] * 2);
+
+    for (int i = 0; i < soundDataSize[s]; ++i)
+    {
+        t    = (float)i / sampleRate;
+        freq = t < noteTimeAct * 6.0f ? mainFreq : 0.0f;
+        env  = bell(t / (noteTimeAct * 3.0f));
+        samp = (int16_t)(tri(freq * t) * env * volume * 32767);
+
+        soundData[s][i * 2 + 0] = samp; // left
+        soundData[s][i * 2 + 1] = samp; // right
+    }
+
+
+    // Sound 2 = connected
+    s = 2;
+
+    soundDataSize[s] = noteTimeInt * 3 + BLOCK_SIZE * 4; // 3 notes and 4 empty blocks
+    soundData[s]     = (int16_t *)ps_malloc(sizeof(int16_t) * soundDataSize[s] * 2);
+
+    for (int i = 0; i < soundDataSize[s]; ++i)
+    {
+        t    = (float)i / sampleRate;
+        freq = t < noteTimeAct
+                 ? mainFreq
+                 : (t < noteTimeAct * 2.0f ? mainFreq * 1.25f : (t < noteTimeAct * 3.0f ? mainFreq * 1.5f : 0.0f));
+        env  = bell(t / noteTimeAct);
+        samp = (int16_t)(tri(freq * t) * env * volume * 32767);
+
+        soundData[s][i * 2 + 0] = samp; // left
+        soundData[s][i * 2 + 1] = samp; // right
+    }
+
+
+    // Sound 3 = disconnected
+    s = 3;
+
+    soundDataSize[s] = noteTimeInt * 3 + BLOCK_SIZE * 4; // 3 notes and 4 empty blocks
+    soundData[s]     = (int16_t *)ps_malloc(sizeof(int16_t) * soundDataSize[s] * 2);
+
+    for (int i = 0; i < soundDataSize[s]; ++i)
+    {
+        t    = (float)i / sampleRate;
+        freq = t < noteTimeAct ? mainFreq * 1.5f
+                               : (t < noteTimeAct * 2.0f ? mainFreq * 1.25f : (t < noteTimeAct * 3.0f ? mainFreq : 0.0f));
+        env  = bell(t / noteTimeAct);
+        samp = (int16_t)(tri(freq * t) * env * volume * 32767);
+
+        soundData[s][i * 2 + 0] = samp; // left
+        soundData[s][i * 2 + 1] = samp; // right
     }
 }
 
 void playSoundTask(void * parameter)
 {
-    if (soundData == NULL || soundDataSize == 0)
-        return;
-
     // Serial.println("Start sound");
 
-    int           blocks     = soundDataSize / BLOCK_SIZE;
+    int s = *((int *)parameter);
+
+    int           blocks     = soundDataSize[s] / BLOCK_SIZE;
     uint16_t      sampleRate = a2dpSink.sample_rate();
     unsigned long start      = millis();
     unsigned long wait;
 
     for (int b = 0; b < blocks; ++b)
     {
-        a2dpSink.write_audio((uint8_t *)soundData + b * BLOCK_SIZE * 2 * 2, BLOCK_SIZE * 2 * 2);
+        a2dpSink.write_audio((uint8_t *)soundData[s] + b * BLOCK_SIZE * 2 * 2, BLOCK_SIZE * 2 * 2);
 
         wait = start + b * 1000ul * BLOCK_SIZE / sampleRate - 1ul - millis();
 
@@ -121,12 +202,16 @@ void playSoundTask(void * parameter)
     vTaskDelete(NULL);
 }
 
-void playSound()
+void playSound(int sound = 0)
 {
+    static int snd = 0;
+
+    snd = sound;
+
     xTaskCreatePinnedToCore(playSoundTask,   // Function that should be called
                             "playSoundTask", // Name of the task (for debugging)
                             4096,            // Stack size (bytes)
-                            NULL,            // Parameter to pass
+                            (void *)&snd,    // Parameter to pass
                             10,              // Task priority
                             NULL,            // Task handle
                             0                // Core you want to run the task on (0 or 1)
@@ -151,7 +236,7 @@ void waitForTrash(uint32_t time)
         buttonTimeout = time + BUTT_TIMEOUT;
 
         // Play sound
-        playSound();
+        playSound(0);
 
         // Switch state
         mainState = WAIT_FOR_BUTTON;
@@ -195,7 +280,7 @@ void waitForButton(uint32_t time)
         a2dpSink.start(BL_NAME, AUTO_CONNECT);
 
         // Play sound
-        playSound();
+        playSound(1);
 
         // Switch state
         mainState = WAIT_FOR_CONNECT;
@@ -235,8 +320,11 @@ void waitForConnect(uint32_t time)
         // Log state
         Serial.println("User connected.");
 
+        // Set initial volume
+        a2dpSink.set_volume(NORM_VOLUME);
+
         // Play sound
-        playSound();
+        playSound(2);
 
         // Switch state
         mainState = WAIT_FOR_DISCONNECT;
@@ -287,7 +375,7 @@ void waitForDisconnect(uint32_t time)
         Serial.println("User disconnected.");
 
         // Play sound
-        playSound();
+        playSound(3);
 
         // Switch state
         mainState = WAIT_FOR_CONNECT;
@@ -362,8 +450,8 @@ void setup()
     a2dpSink.init_i2s_only();
 
 
-    // Generate sound
-    generateSound();
+    // Generate sounds
+    generateSounds();
 
     // Update LEDs
     for (int i = 0; i < NUM_OF_LEDS; ++i)
@@ -374,7 +462,7 @@ void setup()
     Serial.println("Trashbox ready for trash.");
 
     // Play sound
-    playSound();
+    playSound(3);
 
     // Wait a second
     delay(1000);
@@ -385,8 +473,16 @@ void setup()
 
 void loop()
 {
+    // Get current time from RTC
+    DateTime now = rtc.now();
+
+    // Set volume divider depending on day or night
+    uint8_t hour        = now.hour();
+    bool    isItDaytime = hour >= 8 && hour < 22;
+    a2dpSink.set_volume_divider(isItDaytime ? 1 : 2);
+
     // Switch through main states
-    uint32_t time = rtc.now().secondstime();
+    uint32_t time = now.secondstime();
 
     switch (mainState)
     {

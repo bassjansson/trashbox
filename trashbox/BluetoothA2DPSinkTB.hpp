@@ -141,4 +141,58 @@ public:
             }
         }
     };
+
+    void volume_set_by_controller(uint8_t volume) override
+    {
+        ESP_LOGI(BT_AV_TAG, "Volume is set by remote controller to %d", (uint32_t)volume * 100 / 0x7f);
+
+        _lock_acquire(&s_volume_lock);
+        s_volume = volume;
+        _lock_release(&s_volume_lock);
+
+        volume_control()->set_volume(s_volume / volume_divider);
+        volume_control()->set_enabled(true);
+
+        if (bt_volumechange != nullptr)
+        {
+            (*bt_volumechange)(s_volume);
+        }
+    };
+
+    void set_volume(uint8_t volume) override
+    {
+        ESP_LOGI(BT_AV_TAG, "set_volume %d", volume);
+        if (volume > 0x7f)
+        {
+            volume = 0x7f;
+        }
+        s_volume = volume & 0x7f;
+        volume_control()->set_volume(s_volume / volume_divider);
+        volume_control()->set_enabled(true);
+
+#ifdef ESP_IDF_4
+        volume_set_by_local_host(s_volume);
+#endif
+    };
+
+    void set_volume_divider(uint8_t divider)
+    {
+        if (volume_divider == divider)
+            return;
+
+        volume_divider = divider;
+
+        set_volume(get_volume());
+
+        Serial.print("Volume divider: ");
+        Serial.println(volume_divider);
+    };
+
+    uint8_t get_volume_divider()
+    {
+        return volume_divider;
+    }
+
+private:
+    uint8_t volume_divider = 1;
 };
