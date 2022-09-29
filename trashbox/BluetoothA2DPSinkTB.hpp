@@ -101,30 +101,6 @@ public:
         log_free_heap();
     };
 
-    void end(bool release_memory = false) override
-    {
-        // reconnect should not work after end
-        is_autoreconnect_allowed = false;
-        BluetoothA2DPCommon::end(release_memory);
-
-        // stop I2S
-        if (is_i2s_output)
-        {
-            // Do not uninstall i2s
-            // ESP_LOGI(BT_AV_TAG, "uninstall i2s");
-            // if (i2s_driver_uninstall(i2s_port) != ESP_OK)
-            // {
-            //     ESP_LOGE(BT_AV_TAG, "Failed to uninstall i2s");
-            // }
-            // else
-            // {
-            player_init = false;
-            // }
-        }
-
-        log_free_heap();
-    };
-
     void handle_audio_state(uint16_t event, void * p_param) override
     {
         ESP_LOGD(BT_AV_TAG, "%s evt %d", __func__, event);

@@ -15,7 +15,7 @@
 #define BUTTON_PIN   35
 
 #define NUM_OF_LEDS  30
-#define BRIGHTNESS   255
+#define BRIGHTNESS   64
 
 #define BLOCK_SIZE   1024 // 4096, 2 channel 16-bit, somehow constant
 #define AUTO_CONNECT false
@@ -34,6 +34,16 @@ float audioRMS = 0.0001f;
 
 int16_t * soundData     = NULL;
 size_t    soundDataSize = 0;
+
+enum MainState
+{
+    WAIT_FOR_TRASH = 0,
+    WAIT_FOR_BUTTON,
+    WAIT_FOR_CONNECT,
+    WAIT_FOR_DISCONNECT
+};
+
+MainState mainState = WAIT_FOR_TRASH;
 
 void readDataStream(const uint8_t * data, uint32_t length)
 {
@@ -78,12 +88,12 @@ void generateSound()
     }
 }
 
-void playSound()
+void playSoundTask(void * parameter)
 {
     if (soundData == NULL || soundDataSize == 0)
         return;
 
-    Serial.println("Start sound");
+    // Serial.println("Start sound");
 
     int           blocks     = soundDataSize / BLOCK_SIZE;
     uint16_t      sampleRate = a2dpSink.sample_rate();
@@ -97,10 +107,130 @@ void playSound()
         wait = start + b * 1000ul * BLOCK_SIZE / sampleRate - 1ul - millis();
 
         if (wait < 1000ul)
-            delay(wait);
+            vTaskDelay(wait / portTICK_PERIOD_MS);
     }
 
-    Serial.println("End sound");
+    // Serial.println("End sound");
+
+    vTaskDelete(NULL);
+}
+
+void playSound()
+{
+    xTaskCreatePinnedToCore(playSoundTask,   // Function that should be called
+                            "playSoundTask", // Name of the task (for debugging)
+                            4096,            // Stack size (bytes)
+                            NULL,            // Parameter to pass
+                            10,              // Task priority
+                            NULL,            // Task handle
+                            0                // Core you want to run the task on (0 or 1)
+    );
+}
+
+void waitForTrash(uint32_t time)
+{
+    // Update LEDs
+    for (int i = 0; i < NUM_OF_LEDS; ++i)
+        leds[i] = CRGB::Black;
+    FastLED.show();
+
+
+    // Check trash sensors
+    if (digitalRead(IR_SENS_PIN) == LOW) // TODO: more sensors will be added here
+    {
+        // Log state
+        Serial.println("User threw in trash.");
+
+        // Play sound
+        playSound();
+
+        // Switch state
+        mainState = WAIT_FOR_BUTTON;
+    }
+}
+
+void waitForButton(uint32_t time)
+{
+    // Update LEDs
+    for (int i = 0; i < NUM_OF_LEDS; ++i)
+        leds[i] = CRGB::Green;
+    FastLED.show();
+
+
+    // Check start bluetooth button
+    if (digitalRead(BUTTON_PIN) == LOW) // TODO: button debouncing needs to be added here
+    {
+        // Log state
+        Serial.println("User pressed button.");
+
+        // Start bluetooth
+        a2dpSink.start(BL_NAME, AUTO_CONNECT);
+
+        // Play sound
+        playSound();
+
+        // Switch state
+        mainState = WAIT_FOR_CONNECT;
+    }
+}
+
+void waitForConnect(uint32_t time)
+{
+    // Update LEDs
+    for (int i = 0; i < NUM_OF_LEDS; ++i)
+        leds[i] = CRGB::Blue;
+    FastLED.show();
+
+
+    // Check bluetooth connection
+    if (a2dpSink.is_connected())
+    {
+        // Log state
+        Serial.println("User connected.");
+
+        // Play sound
+        playSound();
+
+        // Switch state
+        mainState = WAIT_FOR_DISCONNECT;
+    }
+}
+
+void waitForDisconnect(uint32_t time)
+{
+    // Update LEDs
+    const float range  = 30.0f;
+    float       rmsDb  = log10f(audioRMS) * 20.0f;
+    float       rmsFlt = (rmsDb + range) / range;
+
+    if (rmsFlt < 0.0f)
+        rmsFlt = 0.0f;
+    if (rmsFlt > 1.0f)
+        rmsFlt = 1.0f;
+
+    for (int i = 0; i < NUM_OF_LEDS; ++i)
+        leds[i].setHSV(int(rmsFlt * 2.0f * 255) % 256, 255, rmsFlt * 255);
+
+    FastLED.show();
+
+
+    // Check bluetooth connection
+    if (!a2dpSink.is_connected()) // TODO: this should be quit by a timer
+    {
+        // Log state
+        Serial.println("User disconnected.");
+
+        // Turn LEDs off
+        for (int i = 0; i < NUM_OF_LEDS; ++i)
+            leds[i] = CRGB::Black;
+        FastLED.show();
+
+        // End audio sink
+        a2dpSink.end(true);
+
+        // Restart ESP
+        ESP.restart();
+    }
 }
 
 void setup()
@@ -124,9 +254,12 @@ void setup()
     // FastLED.addLeds<WS2813, LED_DATA_PIN, RGB>(leds, NUM_OF_LEDS);
     FastLED.addLeds<WS2812B, LED_DATA_PIN, GRB>(leds, NUM_OF_LEDS); // GRB ordering is typical
     FastLED.setBrightness(BRIGHTNESS);
+    for (int i = 0; i < NUM_OF_LEDS; ++i)
+        leds[i] = CRGB::Black;
+    FastLED.show();
 
 
-    // Initialise RTC
+    // Setup RTC
     i2c.begin(I2C_SDA_PIN, I2C_SCL_PIN, 100000ul);
 
     if (!rtc.begin(&i2c))
@@ -138,7 +271,7 @@ void setup()
 
     if (rtc.lostPower())
     {
-        Serial.println("RTC lost power, lets set the time!");
+        // Serial.println("RTC lost power, lets set the time!");
         // rtc.adjust(DateTime(2022, 9, 10, 20, 48, 0)); // Change this to current time + 40 sec upload time
     }
 
@@ -171,14 +304,53 @@ void setup()
     // Generate sound
     generateSound();
 
+    // Update LEDs
+    for (int i = 0; i < NUM_OF_LEDS; ++i)
+        leds[i] = CRGB::Red;
+    FastLED.show();
 
-    // Start bluetooth audio
-    // a2dpSink.start(BL_NAME, AUTO_CONNECT); // To turn bluetooth on
-    // a2dpSink.end(); // To turn bluetooth off
+    // Log state
+    Serial.println("Trashbox ready for trash.");
+
+    // Play sound
+    playSound();
+
+    // Wait a second
+    delay(1000);
+
+    // Set initial state
+    mainState = WAIT_FOR_TRASH;
 }
 
 void loop()
 {
+    // Switch through main states
+    uint32_t time = rtc.now().secondstime();
+
+    switch (mainState)
+    {
+        default:
+            waitForTrash(time);
+            break;
+        case WAIT_FOR_TRASH:
+            waitForTrash(time);
+            break;
+        case WAIT_FOR_BUTTON:
+            waitForButton(time);
+            break;
+        case WAIT_FOR_CONNECT:
+            waitForConnect(time);
+            break;
+        case WAIT_FOR_DISCONNECT:
+            waitForDisconnect(time);
+            break;
+    }
+
+
+    // Delay a little bit
+    delay(25);
+
+
     /*
     // Print RTC time
     DateTime now = rtc.now();
@@ -198,50 +370,4 @@ void loop()
     Serial.print(now.second(), DEC);
     Serial.println();
     */
-
-
-    // Print IR reading
-    static float ir = 0.0f;
-    const float  f  = 0.9f;
-
-    ir = ir * f + (1.0f - f) * digitalRead(IR_SENS_PIN);
-    // Serial.println(ir * 5.0f);
-
-    static int lastIR   = 0;
-    int        irN      = digitalRead(IR_SENS_PIN);
-    int        irChange = irN != lastIR;
-    lastIR              = irN;
-
-
-    // Update LEDs
-    static int move = 1;
-    move            = irChange ? !move : move;
-
-    const float range  = 30.0f;
-    float       rmsDb  = log10f(audioRMS) * 20.0f;
-    float       rmsFlt = (rmsDb + range) / range;
-    if (rmsFlt < 0.0f)
-        rmsFlt = 0.0f;
-    if (rmsFlt > 1.0f)
-        rmsFlt = 1.0f;
-
-    // Serial.print(audioRMS * 5.0f);
-    // Serial.print(",");
-    // Serial.println(rmsFlt * 5.0f);
-
-    for (int i = 0; i < NUM_OF_LEDS; ++i)
-    {
-        if (move)
-            leds[i].setHSV(int(rmsFlt * 2.0f * 255) % 256, 255, rmsFlt * 255);
-        else
-            leds[i] = CRGB::Black;
-    }
-
-    FastLED.show();
-
-    if (irChange && move)
-        playSound();
-
-    // Delay a little bit
-    delay(25);
 }
