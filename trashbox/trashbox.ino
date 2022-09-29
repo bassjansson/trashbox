@@ -23,8 +23,16 @@
 #define BUTT_TIMEOUT (60 * 1)  // seconds
 #define CONN_TIMEOUT (60 * 10) // seconds
 
-#define NORM_VOLUME  80    // percent
-#define BLEEP_VOLUME 0.05f // 0 to 1
+#define INIT_VOLUME  80 // percent
+
+#define BLEEP_VOLUME 0.05f  // 0 to 1
+#define BLEEP_FREQ   220.0f // Hertz
+#define BLEEP_DUR    0.15f  // seconds
+
+#define AUD_FB_RANGE 30.0f // dB
+
+#define DAY_START_HR 8  // hours
+#define DAY_END_HR   22 // hours
 
 #define NUM_OF_SOUND 4
 
@@ -90,8 +98,8 @@ void generateSounds()
     // Common
     uint16_t sampleRate  = a2dpSink.sample_rate();
     float    volume      = BLEEP_VOLUME;
-    float    mainFreq    = 220.0f; // Hertz
-    float    noteTime    = 0.15f;  // Seconds
+    float    mainFreq    = BLEEP_FREQ; // Hertz
+    float    noteTime    = BLEEP_DUR;  // seconds
     size_t   noteTimeInt = (size_t)(noteTime * sampleRate / BLOCK_SIZE + 0.5f) * BLOCK_SIZE;
     float    noteTimeAct = (float)noteTimeInt / sampleRate;
     int      s;
@@ -321,7 +329,7 @@ void waitForConnect(uint32_t time)
         Serial.println("User connected.");
 
         // Set initial volume
-        a2dpSink.set_volume(NORM_VOLUME);
+        a2dpSink.set_volume(INIT_VOLUME);
 
         // Play sound
         playSound(2);
@@ -353,9 +361,8 @@ void waitForDisconnect(uint32_t time)
 
 
     // Update LEDs
-    const float range  = 30.0f;
-    float       rmsDb  = log10f(audioRMS) * 20.0f;
-    float       rmsFlt = (rmsDb + range) / range;
+    float rmsDb  = log10f(audioRMS) * 20.0f;
+    float rmsFlt = (rmsDb + AUD_FB_RANGE) / AUD_FB_RANGE;
 
     if (rmsFlt < 0.0f)
         rmsFlt = 0.0f;
@@ -478,7 +485,7 @@ void loop()
 
     // Set volume divider depending on day or night
     uint8_t hour        = now.hour();
-    bool    isItDaytime = hour >= 8 && hour < 22;
+    bool    isItDaytime = hour >= DAY_START_HR && hour < DAY_END_HR;
     a2dpSink.set_volume_divider(isItDaytime ? 1 : 2);
 
     // Switch through main states
@@ -503,28 +510,6 @@ void loop()
             break;
     }
 
-
     // Delay a little bit
     delay(25);
-
-
-    /*
-    // Print RTC time
-    DateTime now = rtc.now();
-
-    Serial.print(now.year(), DEC);
-    Serial.print('/');
-    Serial.print(now.month(), DEC);
-    Serial.print('/');
-    Serial.print(now.day(), DEC);
-    Serial.print(" (");
-    Serial.print(daysOfTheWeek[now.dayOfTheWeek()]);
-    Serial.print(") ");
-    Serial.print(now.hour(), DEC);
-    Serial.print(':');
-    Serial.print(now.minute(), DEC);
-    Serial.print(':');
-    Serial.print(now.second(), DEC);
-    Serial.println();
-    */
 }
